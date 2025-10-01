@@ -1,0 +1,112 @@
+local SPEED = 250
+local TILE_SIZE = 64;            -- must match your tilesource cell size
+local TILE_LAYER = "collision";  -- name of your collision layer
+
+local TILEMAP_GO_URL  = msg.url("main:/level")          -- the GO that holds the tilemap
+local TILEMAP_URL     = msg.url("main:/level#level")    -- the tilemap component
+
+local function world_to_tile(p)
+	-- Convert world space to tilemap-local space by subtracting the tilemap GO position
+	local tm_pos = go.get_world_position(TILEMAP_GO_URL);
+	local lx = p.x - tm_pos.x;
+	local ly = p.y - tm_pos.y;
+	-- Defold tilemaps are 1-based: add +1 after flooring
+	local tx = math.floor(lx / TILE_SIZE) + 1;
+	local ty = math.floor(ly / TILE_SIZE) + 1;
+	return tx, ty;
+end
+
+local function is_solid_at(world)
+	local tx, ty = world_to_tile(world);
+	return tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty) ~= 0;
+end
+
+local function can_move_to(aabb_half, target_pos)
+	-- sample four AABB corners against the collision layer
+	local corners = {
+		vmath.vector3(target_pos.x - aabb_half.x, target_pos.y - aabb_half.y, 0),
+		vmath.vector3(target_pos.x + aabb_half.x, target_pos.y - aabb_half.y, 0),
+		vmath.vector3(target_pos.x - aabb_half.x, target_pos.y + aabb_half.y, 0),
+		vmath.vector3(target_pos.x + aabb_half.x, target_pos.y + aabb_half.y, 0),
+	};
+	for i = 1, #corners do
+		if is_solid_at(corners[i]) then return false end;
+	end
+	return true;
+end
+
+local function axis_to_vec(input)
+	local dx = (input.right and 1 or 0) - (input.left and 1 or 0);
+	local dy = (input.up    and 1 or 0) - (input.down and 1 or 0);
+	if dx ~= 0 or dy ~= 0 then
+		local len = math.sqrt(dx*dx + dy*dy);
+		dx, dy = dx/len, dy/len; -- even diagonal speed
+	end
+	return dx, dy;
+end
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.input = {left=false,right=false,up=false,down=false};
+	self.half = vmath.vector3(24, 16, 0); -- hitbox for feet/bottom area only
+	self.current_anim = nil
+end
+
+function final(self)
+	msg.post(".", "release_input_focus");
+end
+
+function update(self, dt)
+	local anim = hash("idle")
+	local dx, dy = axis_to_vec(self.input)
+	if dx < 0 then
+		anim = hash("left")
+	elseif dx > 0 then
+		anim = hash("right")
+	elseif dy > 0 then
+		anim = hash("back")
+	elseif dy < 0 then
+		anim = hash("front")
+	else
+		anim = hash("idle")
+	end
+
+	if anim ~= self.current_anim then
+		sprite.play_flipbook("#sprite", anim)
+		self.current_anim = anim
+	end
+
+	if dx == 0 and dy == 0 then return end
+		
+	local pos = go.get_position();
+	local intended = pos + vmath.vector3(dx * SPEED * dt, dy * SPEED * dt, 0);
+
+	-- separate axis resolution: try X, then Y
+	local try_x = vmath.vector3(intended.x, pos.y, 0);
+	if can_move_to(self.half, try_x) then pos.x = try_x.x end
+
+	local try_y = vmath.vector3(pos.x, intended.y, 0);
+	if can_move_to(self.half, try_y) then pos.y = try_y.y end
+
+	go.set_position(pos);
+end
+
+function on_message(self, message_id, message, sender)
+	-- Add message-handling code here
+	-- Remove this function if not needed
+end
+
+function on_input(self, action_id, action)
+	if action.pressed or action.released then
+		local down = action.pressed
+		if action_id == hash("left")  then self.input.left  = down end
+		if action_id == hash("right") then self.input.right = down end
+		if action_id == hash("up")    then self.input.up    = down end
+		if action_id == hash("down")  then self.input.down  = down end
+	end
+end
+
+function on_reload(self)
+	-- Add reload-handling code here
+	-- Remove this function if not needed
+end
