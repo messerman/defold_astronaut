@@ -1,0 +1,55 @@
+local SPEED = 400
+local TILE_SIZE = 64
+local MAX_DISTANCE = 5 * TILE_SIZE  -- 5 tiles
+local TILE_LAYER = "collision"
+
+local TILEMAP_GO_URL  = msg.url("main:/level")
+local TILEMAP_URL     = msg.url("main:/level#level")
+
+local function world_to_tile(p)
+	local tm_pos = go.get_world_position(TILEMAP_GO_URL)
+	local lx = p.x - tm_pos.x
+	local ly = p.y - tm_pos.y
+	local tx = math.floor(lx / TILE_SIZE) + 1
+	local ty = math.floor(ly / TILE_SIZE) + 1
+	return tx, ty
+end
+
+local function is_solid_at(world)
+	local tx, ty = world_to_tile(world)
+	return tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty) ~= 0
+end
+
+function init(self)
+	self.distance_traveled = 0
+	self.direction = vmath.vector3(0, 0, 0)
+end
+
+function update(self, dt)
+	local pos = go.get_position()
+	local movement = self.direction * SPEED * dt
+	local new_pos = pos + movement
+
+	-- Check if hit obstacle
+	if is_solid_at(new_pos) then
+		go.delete()
+		return
+	end
+
+	-- Update distance traveled
+	self.distance_traveled = self.distance_traveled + vmath.length(movement)
+
+	-- Check if traveled max distance
+	if self.distance_traveled >= MAX_DISTANCE then
+		go.delete()
+		return
+	end
+
+	go.set_position(new_pos)
+end
+
+function on_message(self, message_id, message, sender)
+	if message_id == hash("set_direction") then
+		self.direction = message.direction
+	end
+end

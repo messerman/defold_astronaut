@@ -50,6 +50,8 @@ function init(self)
 	self.input = {left=false,right=false,up=false,down=false};
 	self.half = vmath.vector3(24, 16, 0); -- hitbox for feet/bottom area only
 	self.current_anim = nil
+	self.facing_direction = vmath.vector3(0, -1, 0); -- default facing down
+	self.is_moving = false
 end
 
 function final(self)
@@ -57,24 +59,54 @@ function final(self)
 end
 
 function update(self, dt)
-	local anim = hash("idle")
+	local anim = self.current_anim
 	local dx, dy = axis_to_vec(self.input)
+	local moving = (dx ~= 0 or dy ~= 0)
+
+	-- Update facing direction and animation when moving
 	if dx < 0 then
 		anim = hash("left")
+		self.facing_direction = vmath.vector3(-1, 0, 0)
 	elseif dx > 0 then
 		anim = hash("right")
+		self.facing_direction = vmath.vector3(1, 0, 0)
 	elseif dy > 0 then
 		anim = hash("back")
+		self.facing_direction = vmath.vector3(0, 1, 0)
 	elseif dy < 0 then
 		anim = hash("front")
+		self.facing_direction = vmath.vector3(0, -1, 0)
 	else
-		anim = hash("idle")
+		-- When stopped, switch to idle only if facing front, otherwise keep current animation
+		if self.facing_direction == vmath.vector3(0, -1, 0) then
+			anim = hash("idle")
+		else
+			anim = self.current_anim
+		end
 	end
 
+	-- Play animation if changed
 	if anim ~= self.current_anim then
 		sprite.play_flipbook("#sprite", anim)
 		self.current_anim = anim
 	end
+
+	-- Control animation playback based on movement
+	if moving and not self.is_moving then
+		-- Just started moving - ensure animation is playing
+		go.set("#sprite", "playback_rate", 1)
+	elseif not moving and self.is_moving then
+		-- Just stopped moving
+		if anim == hash("idle") then
+			-- Keep idle animation playing
+			go.set("#sprite", "playback_rate", 1)
+		else
+			-- Pause animation for directional sprites
+			go.set("#sprite", "playback_rate", 0)
+		end
+	end
+
+	self.is_moving = moving
 
 	if dx == 0 and dy == 0 then return end
 		
@@ -103,6 +135,28 @@ function on_input(self, action_id, action)
 		if action_id == hash("right") then self.input.right = down end
 		if action_id == hash("up")    then self.input.up    = down end
 		if action_id == hash("down")  then self.input.down  = down end
+	end
+
+	if action_id == hash("fire") and action.pressed then
+		local pos = go.get_position()
+		-- Offset to sprite center (sprite is at y+48 from game object position)
+		local adjustment = vmath.vector3(0, 0, 0)
+		if self.facing_direction == vmath.vector3(0, -1, 0) then
+			adjustment = adjustment + vmath.vector3(6, 16, 1)
+		end
+
+		local center_offset = vmath.vector3(0, 48, 0) + adjustment
+		print(center_offset)
+		local direction_offset = self.facing_direction * 48
+		print(direction_offset)
+		local spawn_pos = pos + center_offset + direction_offset
+		print(spawn_pos)
+		spawn_pos.z = 0.5  -- Set z-position for layering (higher = in front)
+		local props = {
+			position = spawn_pos,
+		}
+		local id = factory.create("#projectile_factory", spawn_pos, nil, props)
+		msg.post(id, "set_direction", {direction = self.facing_direction})
 	end
 end
 

@@ -5,7 +5,7 @@ instances {
   position {
     x: 640.0
     y: 384.0
-    z: 1.0
+    z: 0.0
   }
   rotation {
     x: 0.0
@@ -28,7 +28,7 @@ embedded_instances {
   "  position {\n"
   "    x: 0.0\n"
   "    y: 0.0\n"
-  "    z: 0.0\n"
+  "    z: -0.1\n"
   "  }\n"
   "  rotation {\n"
   "    x: 0.0\n"
