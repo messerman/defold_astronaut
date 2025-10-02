@@ -15,9 +15,14 @@ local function world_to_tile(p)
 	return tx, ty
 end
 
-local function is_solid_at(world)
+local function get_tile_at(world)
 	local tx, ty = world_to_tile(world)
-	return tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty) ~= 0
+	return tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty), tx, ty
+end
+
+local function is_solid_at(world)
+	local tile_id = get_tile_at(world)
+	return tile_id ~= 0
 end
 
 function init(self)
@@ -31,7 +36,17 @@ function update(self, dt)
 	local new_pos = pos + movement
 
 	-- Check if hit obstacle
-	if is_solid_at(new_pos) then
+	local tile_id, tx, ty = get_tile_at(new_pos)
+	if tile_id ~= 0 then
+		-- Handle rock damage
+		if tile_id == 6 then
+			-- Tile 6 becomes tile 5 when hit
+			tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 5)
+		elseif tile_id == 5 then
+			-- Tile 5 disappears when hit
+			tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 0)
+		end
+		-- Destroy projectile regardless
 		go.delete()
 		return
 	end

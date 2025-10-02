@@ -146,11 +146,8 @@ function on_input(self, action_id, action)
 		end
 
 		local center_offset = vmath.vector3(0, 48, 0) + adjustment
-		print(center_offset)
 		local direction_offset = self.facing_direction * 48
-		print(direction_offset)
 		local spawn_pos = pos + center_offset + direction_offset
-		print(spawn_pos)
 		spawn_pos.z = 0.5  -- Set z-position for layering (higher = in front)
 		local props = {
 			position = spawn_pos,
