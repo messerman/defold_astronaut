@@ -1,7 +1,7 @@
-local SPEED = 400
+local DEFAULT_SPEED = 750
 local TILE_SIZE = 64
-local MAX_DISTANCE = 5 * TILE_SIZE  -- 5 tiles
 local TILE_LAYER = "collision"
+local COLLISION_RADIUS = 16  -- Collision radius in pixels
 
 local TILEMAP_GO_URL  = msg.url("main:/level")
 local TILEMAP_URL     = msg.url("main:/level#level")
@@ -28,37 +28,62 @@ end
 function init(self)
 	self.distance_traveled = 0
 	self.direction = vmath.vector3(0, 0, 0)
+	self.speed = DEFAULT_SPEED  -- Can be overridden by slingshot force
 end
 
 function update(self, dt)
 	local pos = go.get_position()
-	local movement = self.direction * SPEED * dt
+	local movement = self.direction * self.speed * dt
 	local new_pos = pos + movement
 
-	-- Check if hit obstacle
-	local tile_id, tx, ty = get_tile_at(new_pos)
-	if tile_id ~= 0 then
-		-- Handle rock damage
-		if tile_id == 6 then
-			-- Tile 6 becomes tile 5 when hit
-			tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 5)
-		elseif tile_id == 5 then
-			-- Tile 5 disappears when hit
-			tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 0)
+	-- Check collision area around projectile center
+	local offsets = {
+		vmath.vector3(0, 0, 0),  -- center
+		vmath.vector3(-COLLISION_RADIUS, 0, 0),  -- left
+		vmath.vector3(COLLISION_RADIUS, 0, 0),   -- right
+		vmath.vector3(0, -COLLISION_RADIUS, 0),  -- bottom
+		vmath.vector3(0, COLLISION_RADIUS, 0),   -- top
+	}
+
+	for i, offset in ipairs(offsets) do
+		local check_pos = new_pos + offset
+		local tile_id, tx, ty = get_tile_at(check_pos)
+		if tile_id == 1 then
+			-- Slow & Bounce
+			self.speed = self.speed - 10
+			if i == 2 or i == 3 then -- hit left or right wall
+				self.direction.x = self.direction.x * -1
+			else -- hit top or bottom wall
+				self.direction.y = self.direction.y * -1			
+			end
+			movement = self.direction * self.speed * dt
+			new_pos = pos + movement
+		elseif tile_id ~= 0 then
+			-- Handle rock damage
+			if tile_id == 6 then
+				-- Tile 6 becomes tile 5 when hit
+				tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 5)
+			elseif tile_id == 5 then
+				-- Tile 5 becomes tile 7 when hit
+				tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 7)
+			elseif tile_id == 7 then
+				-- Tile 7 disappears when hit
+				tilemap.set_tile(TILEMAP_URL, TILE_LAYER, tx, ty, 0)
+			end
+			-- Destroy projectile regardless
+			go.delete()
+			return
 		end
-		-- Destroy projectile regardless
-		go.delete()
-		return
 	end
 
+	-- Reduce the speed of the projectile (air resistance)
+	self.speed = self.speed - 10
+	if self.speed < 10 then
+		go.delete()
+	end
+	
 	-- Update distance traveled
 	self.distance_traveled = self.distance_traveled + vmath.length(movement)
-
-	-- Check if traveled max distance
-	if self.distance_traveled >= MAX_DISTANCE then
-		go.delete()
-		return
-	end
 
 	go.set_position(new_pos)
 end
@@ -66,5 +91,9 @@ end
 function on_message(self, message_id, message, sender)
 	if message_id == hash("set_direction") then
 		self.direction = message.direction
+		-- Set speed from force if provided (for slingshot), otherwise use default
+		if message.force then
+			self.speed = message.force
+		end
 	end
 end

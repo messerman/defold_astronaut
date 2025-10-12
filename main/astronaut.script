@@ -18,7 +18,9 @@ end
 
 local function is_solid_at(world)
 	local tx, ty = world_to_tile(world);
-	return tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty) ~= 0;
+	local tile_id = tilemap.get_tile(TILEMAP_URL, TILE_LAYER, tx, ty);
+	-- Tile 7 is passable (damaged rock state)
+	return tile_id ~= 0 and tile_id ~= 7;
 end
 
 local function can_move_to(aabb_half, target_pos)
@@ -45,6 +47,33 @@ local function axis_to_vec(input)
 	return dx, dy;
 end
 
+local function point_in_astronaut(astronaut_pos, click_pos, size)
+	-- Check if click position is within astronaut bounds
+	local sprite_center = astronaut_pos + vmath.vector3(0, 48, 0) -- Sprite center offset
+	local half_size = size * 0.5
+	return (click_pos.x >= sprite_center.x - half_size.x and
+			click_pos.x <= sprite_center.x + half_size.x and
+			click_pos.y >= sprite_center.y - half_size.y and
+			click_pos.y <= sprite_center.y + half_size.y)
+end
+
+local function calculate_slingshot_force(drag_vector)
+	-- Convert drag distance to projectile force
+	local drag_length = vmath.length(drag_vector)
+	local max_drag_distance = 100 -- Maximum drag distance for max force
+	local max_force = 800 -- Maximum projectile force
+
+	local force_magnitude = math.min(drag_length / max_drag_distance, 1.0) * max_force
+
+	-- Direction is opposite of drag (slingshot effect)
+	local direction = vmath.vector3(0, 0, 0)
+	if drag_length > 0 then
+		direction = -vmath.normalize(drag_vector)
+	end
+
+	return direction, force_magnitude
+end
+
 function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.input = {left=false,right=false,up=false,down=false};
@@ -52,6 +81,11 @@ function init(self)
 	self.current_anim = nil
 	self.facing_direction = vmath.vector3(0, -1, 0); -- default facing down
 	self.is_moving = false
+
+	-- Slingshot shooting variables
+	self.is_dragging = false
+	self.drag_current_pos = vmath.vector3()
+	self.astronaut_sprite_size = vmath.vector3(48, 96, 0) -- Approximate sprite size for click detection
 end
 
 function final(self)
@@ -59,6 +93,17 @@ function final(self)
 end
 
 function update(self, dt)
+	-- Draw slingshot line if dragging
+	if self.is_dragging then
+		local astronaut_pos = go.get_position()
+		local center_pos = astronaut_pos + vmath.vector3(0, 48, 0) -- Sprite center
+		msg.post("@render:", "draw_line", {
+			start_point = center_pos,
+			end_point = self.drag_current_pos,
+			color = vmath.vector4(1, 1, 1, 0.8) -- White with some transparency
+		})
+	end
+
 	local anim = self.current_anim
 	local dx, dy = axis_to_vec(self.input)
 	local moving = (dx ~= 0 or dy ~= 0)
@@ -137,6 +182,45 @@ function on_input(self, action_id, action)
 		if action_id == hash("down")  then self.input.down  = down end
 	end
 
+	-- Slingshot shooting with mouse
+	if action_id == hash("touch") then
+		local mouse_pos = vmath.vector3(action.x, action.y, 0)
+		local astronaut_pos = go.get_position()
+
+		if action.pressed then
+			-- Check if click is on astronaut
+			if point_in_astronaut(astronaut_pos, mouse_pos, self.astronaut_sprite_size) then
+				self.is_dragging = true
+				self.drag_current_pos = mouse_pos
+			end
+		elseif action.released and self.is_dragging then
+			-- Fire projectile based on drag
+			local drag_vector = self.drag_current_pos - go.get_position()
+			local direction, force = calculate_slingshot_force(drag_vector)
+
+			if vmath.length(drag_vector) > 10 then -- Minimum drag distance
+				local pos = go.get_position()
+				local center_offset = vmath.vector3(0, 48, 0)
+				local spawn_pos = pos + center_offset
+				spawn_pos.z = 0.5
+
+				local props = {
+					position = spawn_pos,
+				}
+				local id = factory.create("#projectile_factory", spawn_pos, nil, props)
+				msg.post(id, "set_direction", {direction = direction, force = force})
+			end
+
+			self.is_dragging = false
+		end
+
+		-- Update drag position while dragging
+		if self.is_dragging then
+			self.drag_current_pos = mouse_pos
+		end
+	end
+
+	-- Keep original spacebar shooting for backup
 	if action_id == hash("fire") and action.pressed then
 		local pos = go.get_position()
 		-- Offset to sprite center (sprite is at y+48 from game object position)
